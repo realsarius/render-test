@@ -1,45 +1,45 @@
+require('dotenv').config();
+const Note = require('./models/note');
+
 const express = require('express');
 const cors = require('cors');
+const mongoose = require('mongoose')
 const app = express();
+
 
 app.use(express.json());
 app.use(cors());
 app.use(express.static('dist'));
 
-let notes = [
-    {
-        id: "1",
-        content: "HTML is easy",
-        important: true
-    },
-    {
-        id: "2",
-        content: "Browser can execute only JavaScript",
-        important: false
-    },
-    {
-        id: "3",
-        content: "GET and POST are the most important methods of HTTP protocol",
-        important: true
-    }
-];
+const url = process.env.MONGODB_URI;
+
+mongoose.set('strictQuery', false)
+mongoose.connect(url)
 
 app.get('/', (req, res) => {
     res.send('<h1>Hello World!</h1>');
 });
 
 app.get('/api/notes', (req, res) => {
-    res.json(notes);
+    Note.find({}).then(notes => {
+        res.json(notes);
+    })
 });
 
 app.get('/api/notes/:id', (req, res) => {
-    const id = req.params.id;
-    const note = notes.find(note => note.id === id);
-    if (note) {
-        res.status(200).json(note);
-    } else {
-        res.status(404).send('Not Found');
-    }
+    const noteId = req.params.id;
+
+    Note.findById(noteId)
+        .then(note => {
+            if (note) {
+                res.json(note);
+            } else {
+                res.status(404).json({error: 'note not found'});
+            }
+        })
+        .catch(error => {
+            res.status(500).json({error: 'invalid ID format', details: error.message});
+        });
 });
 
 app.delete('/api/notes/:id', (req, res) => {
@@ -55,55 +55,47 @@ app.delete('/api/notes/:id', (req, res) => {
     res.status(200).json({message: "Note deleted successfully."});
 });
 
-const generateId = () => {
-    const maxId = notes.length > 0
-        ? Math.max(...notes.map(n => Number(n.id)))
-        : 0;
-    return String(maxId + 1);
-};
-
 app.post('/api/notes', (request, response) => {
-    const body = request.body;
+    const body = request.body
 
-    if (!body.content) {
-        return response.status(400).json({
-            error: 'content missing'
-        });
+    if (body.content === undefined) {
+        return response.status(400).json({error: 'content missing'})
     }
 
-    const note = {
+    const note = new Note({
         content: body.content,
-        important: Boolean(body.important) || false,
-        id: generateId(),
-    };
+        important: body.important || false,
+    })
 
-    notes = notes.concat(note);
-
-    response.json(note);
+    note.save().then(savedNote => {
+        response.json(savedNote)
+    })
 });
 
-// PUT request to update an existing note
 app.put('/api/notes/:id', (req, res) => {
     const id = req.params.id;
     const body = req.body;
 
-    const note = notes.find(note => note.id === id);
-    if (!note) {
-        return res.status(404).json({error: "Note not found."});
-    }
-
     const updatedNote = {
-        ...note,
-        content: body.content || note.content,
-        important: body.important !== undefined ? body.important : note.important,
+        content: body.content,
+        important: body.important,
     };
 
-    notes = notes.map(note => note.id === id ? updatedNote : note);
-
-    res.status(200).json(updatedNote);
+    Note.findByIdAndUpdate(id, updatedNote, { new: true, runValidators: true })
+        .then(updatedNote => {
+            if (updatedNote) {
+                res.status(200).json(updatedNote);
+            } else {
+                res.status(404).json({ error: "Note not found." });
+            }
+        })
+        .catch(error => {
+            res.status(500).json({ error: "Update failed.", details: error.message });
+        });
 });
 
-const PORT = process.env.PORT || 3001;
+
+const PORT = process.env.PORT;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
